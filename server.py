@@ -437,12 +437,12 @@ def get_token(service, username, password):
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        '-a', '--auth_service', type=str.lower, help='Auth Service', default='ptc')
+        '-a', '--auth_service', type=str.lower, help='Auth Service', default='google')
     parser.add_argument('-u', '--username', help='Username', required=True)
     parser.add_argument('-p', '--password', help='Password', required=False)
     parser.add_argument(
-        '-l', '--location', type=parse_unicode, help='Location', required=True)
-    parser.add_argument('-st', '--step-limit', help='Steps', required=True)
+        '-l', '--location', type=parse_unicode, help='Location', default="37.42236 -122.08436")
+    parser.add_argument('-st', '--step-limit', help='Steps', default=500)
     group = parser.add_mutually_exclusive_group(required=False)
     group.add_argument(
         '-i', '--ignore', help='Comma-separated list of Pokémon names or IDs to ignore')
