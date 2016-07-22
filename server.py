@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import flask
-from flask import Flask, render_template
+from flask import Flask, render_template, url_for
 from flask_googlemaps import GoogleMaps
 from flask_googlemaps import Map
 from flask_googlemaps import icons
@@ -30,6 +30,8 @@ from requests.adapters import ConnectionError
 from requests.models import InvalidURL
 from transform import *
 
+from secret import user, passwd
+
 requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
 API_URL = 'https://pgorelease.nianticlabs.com/plfe/rpc'
@@ -38,8 +40,8 @@ LOGIN_URL = \
 LOGIN_OAUTH = 'https://sso.pokemon.com/sso/oauth2.0/accessToken'
 APP = 'com.nianticlabs.pokemongo'
 
-with open('credentials.json') as file:
-	credentials = json.load(file)
+credentials = { "ptc_client_secret": "w8ScCUXJQc6kXKw8FiOhd8Fixzht18Dq3PEVkUCP5ZPxtgyWsbTvWHFLm2wNY0JR", "android_id": "9774d56d682e549c", "service": "audience:server:client_id:848232511240-7so421jotr2609rmqakceuu1luuq0ptb.apps.googleusercontent.com", "client_sig": "321187995bc7cdc2b5fc91b11a96e2baa8602c62", "gmaps_key": "AIzaSyAZzeHhs-8JZ7i18MjFuM35dJHq70n3Hx4"}
+
 
 PTC_CLIENT_SECRET = credentials.get('ptc_client_secret', None)
 ANDROID_ID = credentials.get('android_id', None)
@@ -75,7 +77,7 @@ numbertoteam = {  # At least I'm pretty sure that's it. I could be wrong and the
     2: 'Valor',
     3: 'Instinct',
 }
-origin_lat, origin_lon = None, None
+origin_lat, origin_lon = 37.42236, -122.08436 
 is_ampm_clock = False
 
 # stuff for in-background search thread
@@ -438,10 +440,10 @@ def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '-a', '--auth_service', type=str.lower, help='Auth Service', default='google')
-    parser.add_argument('-u', '--username', help='Username', required=True)
-    parser.add_argument('-p', '--password', help='Password', required=False)
+    parser.add_argument('-u', '--username', help='Username', default=user)
+    parser.add_argument('-p', '--password', help='Password', default=passwd)
     parser.add_argument(
-        '-l', '--location', type=parse_unicode, help='Location', default="37.42236 -122.08436")
+        '-l', '--location', type=parse_unicode, help='Location', default="{} {}".format(origin_lat, origin_lon))
     parser.add_argument('-st', '--step-limit', help='Steps', default=500)
     group = parser.add_mutually_exclusive_group(required=False)
     group.add_argument(
@@ -752,7 +754,7 @@ def register_background_thread(initial_registration=False):
 
 
 def create_app():
-    app = Flask(__name__, template_folder='templates')
+    app = Flask("pokemap", template_folder='templates')
 
     GoogleMaps(app, key=GOOGLEMAPS_KEY)
     return app
@@ -787,7 +789,6 @@ def config():
 @app.route('/')
 def fullmap():
     clear_stale_pokemons()
-
     return render_template(
         'example_fullmap.html', key=GOOGLEMAPS_KEY, fullmap=get_map(), auto_refresh=auto_refresh)
 
