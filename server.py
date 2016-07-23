@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import flask
-from flask import Flask, render_template, url_for
+from flask import Flask, render_template, url_for, session
 from flask_googlemaps import GoogleMaps
 from flask_googlemaps import Map
 from flask_googlemaps import icons
@@ -84,29 +84,6 @@ is_ampm_clock = False
 # stuff for in-background search thread
 
 search_thread = None
-
-class Logger(object):
-    def __init__(self, file=SERVER_LOG):
-        self.fpath = file
-        if not os.path.exists(self.fpath):
-            with open(self.fpath, 'w+') as fp:
-                fp.write('\n')
-        self.fp = open(self.fpath, 'a')
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        self.fp.close()
-
-    def __del__(self):
-        self.fp.close()
-
-    def log(self, msg):
-        self.fp.write(msg)
-        self.fp.write('\n')
-
-log = Logger()
 
 def memoize(obj):
     cache = obj.cache = {}
@@ -190,6 +167,9 @@ def retrying_set_location(location_name):
 
 
 def set_location(location_name):
+    #if session.get('got_loc'):
+    #    set_location_coords(session['lat'], session['lon'], 0)
+    #    return
     geolocator = GoogleV3()
     prog = re.compile('^(\-?\d+(\.\d+)?),\s*(\-?\d+(\.\d+)?)$')
     global origin_lat
@@ -649,7 +629,7 @@ def main():
         NEXT_LAT = 0
         NEXT_LONG = 0
     else:
-        set_location_coords(origin_lat, origin_lon, 0)
+        set_location_coords(session.get('lat', origin_lat), session.get('lon', origin_lon), 0)
 
     register_background_thread()
 
@@ -709,9 +689,6 @@ def process_step(args, api_endpoint, access_token, profile_response,
     for poke in visible:
         pokeid = str(poke.pokemon.PokemonId)
         pokename = pokemonsJSON[pokeid]
-        try:
-            print "There's a",pokename,"nearby"
-        except: continue
         if args.ignore:
             if pokename.lower() in ignore or pokeid in ignore:
                 continue
@@ -778,13 +755,25 @@ def register_background_thread(initial_registration=False):
 
 def create_app():
     app = Flask("pokemap", template_folder='templates')
-
+    app.secret_key = credentials['flask_secret']
     GoogleMaps(app, key=GOOGLEMAPS_KEY)
     return app
 
 
 app = create_app()
 
+
+@app.route('/geolocate/<lat>/<lon>')
+def geolocate(lat, lon):
+    print >> sys.stderr, "Setting location centerpoint to", lat,",",lon
+    session['lat'] = float(lat)
+    session['lon'] = float(lon)
+    session['got_loc'] = True
+    global origin_lat
+    global origin_lon
+    origin_lat = float(session['lat'])
+    origin_lon = float(session['lon'])
+    return json.dumps({'lat': lat, 'lon': lon})
 
 @app.route('/data')
 def data():
@@ -832,10 +821,13 @@ def next_loc():
 
 
 def get_pokemarkers():
+    if not session.get('got_loc', False):
+        return []
+ 
     pokeMarkers = [{
         'icon': icons.dots.red,
-        'lat': origin_lat,
-        'lng': origin_lon,
+        'lat': session.get('lat'),
+        'lng': session.get('lon'),
         'infobox': "Start position",
         'type': 'custom',
         'key': 'start-position',
