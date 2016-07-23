@@ -34,14 +34,15 @@ from secret import user, passwd
 
 requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
+SERVER_LOG = os.path.join(os.path.dirname(__file__), 'server.log')
 API_URL = 'https://pgorelease.nianticlabs.com/plfe/rpc'
 LOGIN_URL = \
     'https://sso.pokemon.com/sso/login?service=https://sso.pokemon.com/sso/oauth2.0/callbackAuthorize'
 LOGIN_OAUTH = 'https://sso.pokemon.com/sso/oauth2.0/accessToken'
 APP = 'com.nianticlabs.pokemongo'
 
-credentials = { "ptc_client_secret": "w8ScCUXJQc6kXKw8FiOhd8Fixzht18Dq3PEVkUCP5ZPxtgyWsbTvWHFLm2wNY0JR", "android_id": "9774d56d682e549c", "service": "audience:server:client_id:848232511240-7so421jotr2609rmqakceuu1luuq0ptb.apps.googleusercontent.com", "client_sig": "321187995bc7cdc2b5fc91b11a96e2baa8602c62", "gmaps_key": "AIzaSyAZzeHhs-8JZ7i18MjFuM35dJHq70n3Hx4"}
-
+with open(os.path.join(os.path.dirname(__file__), 'credentials.json'), 'r') as fp:
+    credentials = json.load(fp)
 
 PTC_CLIENT_SECRET = credentials.get('ptc_client_secret', None)
 ANDROID_ID = credentials.get('android_id', None)
@@ -84,6 +85,29 @@ is_ampm_clock = False
 
 search_thread = None
 
+class Logger(object):
+    def __init__(self, file=SERVER_LOG):
+        self.fpath = file
+        if not os.path.exists(self.fpath):
+            with open(self.fpath, 'w+') as fp:
+                fp.write('\n')
+        self.fp = open(self.fpath, 'a')
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.fp.close()
+
+    def __del__(self):
+        self.fp.close()
+
+    def log(self, msg):
+        self.fp.write(msg)
+        self.fp.write('\n')
+
+log = Logger()
+
 def memoize(obj):
     cache = obj.cache = {}
 
@@ -102,7 +126,7 @@ def parse_unicode(bytestring):
 
 def debug(message):
     if DEBUG:
-        print '[-] {}'.format(message)
+        print >> sys.stderr, '[-] {}'.format(message)
 
 
 def time_left(ms):
@@ -178,9 +202,9 @@ def set_location(location_name):
         loc = geolocator.geocode(location_name)
         origin_lat, origin_lon = local_lat, local_lng = loc.latitude, loc.longitude
         alt = loc.altitude
-        print '[!] Your given location: {}'.format(loc.address.encode('utf-8'))
+        print >> sys.stderr, '[!] Your given location: {}'.format(loc.address.encode('utf-8'))
 
-    print('[!] lat/long/alt: {} {} {}'.format(local_lat, local_lng, alt))
+    print >> sys.stderr, '[!] lat/long/alt: {} {} {}'.format(local_lat, local_lng, alt)
     set_location_coords(local_lat, local_lng, alt)
 
 
@@ -243,11 +267,11 @@ def api_req(service, api_endpoint, access_token, *args, **kwargs):
     p_ret.ParseFromString(r.content)
 
     if VERBOSE_DEBUG:
-        print 'REQUEST:'
-        print p_req
-        print 'Response:'
-        print p_ret
-        print '''
+        print >> sys.stderr, 'REQUEST:'
+        print >> sys.stderr, p_req
+        print >> sys.stderr, 'Response:'
+        print >> sys.stderr, p_ret
+        print >> sys.stderr, '''
 
 '''
     time.sleep(0.51)
@@ -317,7 +341,7 @@ def get_profile(service, access_token, api, useauth, *reqq):
     return retrying_api_req(service, api, access_token, req, useauth=useauth)
 
 def login_google(username, password):
-    print '[!] Google login for: {}'.format(username)
+    print >> sys.stderr, '[!] Google login for: {}'.format(username)
     r1 = perform_master_login(username, password, ANDROID_ID)
     r2 = perform_oauth(username,
                        r1.get('Token', ''),
@@ -328,7 +352,7 @@ def login_google(username, password):
     return r2.get('Auth')
 
 def login_ptc(username, password):
-    print '[!] PTC login for: {}'.format(username)
+    print >> sys.stderr, '[!] PTC login for: {}'.format(username)
     head = {'User-Agent': 'Niantic App'}
     r = SESSION.get(LOGIN_URL, headers=head)
     if r is None:
@@ -343,7 +367,7 @@ def login_ptc(username, password):
     # Maximum password length is 15 (sign in page enforces this limit, API does not)
 
     if len(password) > 15:
-        print '[!] Trimming password to 15 characters'
+        print >> sys.stderr, '[!] Trimming password to 15 characters'
         password = password[:15]
 
     data = {
@@ -360,7 +384,7 @@ def login_ptc(username, password):
         ticket = re.sub('.*ticket=', '', r1.history[0].headers['Location'])
     except Exception, e:
         if DEBUG:
-            print r1.json()['errors'][0]
+            print >> sys.stderr, r1.json()['errors'][0]
         return None
 
     data1 = {
@@ -517,34 +541,34 @@ def login(args):
     if access_token is None:
         raise Exception('[-] Wrong username/password')
 
-    print '[+] RPC Session Token: {} ...'.format(access_token[:25])
+    print >> sys.stderr, '[+] RPC Session Token: {} ...'.format(access_token[:25])
 
     api_endpoint = get_api_endpoint(args.auth_service, access_token)
     if api_endpoint is None:
         raise Exception('[-] RPC server offline')
 
-    print '[+] Received API endpoint: {}'.format(api_endpoint)
+    print >> sys.stderr, '[+] Received API endpoint: {}'.format(api_endpoint)
 
     profile_response = retrying_get_profile(args.auth_service, access_token,
                                             api_endpoint, None)
     if profile_response is None or not profile_response.payload:
         raise Exception('Could not get profile')
 
-    print '[+] Login successful'
+    print >> sys.stderr, '[+] Login successful'
 
     payload = profile_response.payload[0]
     profile = pokemon_pb2.ResponseEnvelop.ProfilePayload()
     profile.ParseFromString(payload)
-    print '[+] Username: {}'.format(profile.profile.username)
+    print >> sys.stderr, '[+] Username: {}'.format(profile.profile.username)
 
     creation_time = \
         datetime.fromtimestamp(int(profile.profile.creation_time)
                                / 1000)
-    print '[+] You started playing Pokemon Go on: {}'.format(
+    print >> sys.stderr, '[+] You started playing Pokemon Go on: {}'.format(
         creation_time.strftime('%Y-%m-%d %H:%M:%S'))
 
     for curr in profile.profile.currency:
-        print '[+] {}: {}'.format(curr.type, curr.amount)
+        print >> sys.stderr, '[+] {}: {}'.format(curr.type, curr.amount)
 
     return api_endpoint, access_token, profile_response
 
@@ -555,21 +579,21 @@ def main():
     args = get_args()
 
     if args.auth_service not in ['ptc', 'google']:
-        print '[!] Invalid Auth service specified'
+        print >> sys.stderr, '[!] Invalid Auth service specified'
         return
 
-    print('[+] Locale is ' + args.locale)
+    print >> sys.stderr, '[+] Locale is ' + args.locale
     pokemonsJSON = json.load(
         open(path + '/locales/pokemon.' + args.locale + '.json'))
 
     if args.debug:
         global DEBUG
         DEBUG = True
-        print '[!] DEBUG mode on'
+        print >> sys.stderr, '[!] DEBUG mode on'
 
     # only get location for first run
     if not (FLOAT_LAT and FLOAT_LONG):
-      print('[+] Getting initial location')
+      print >> sys.stderr, '[+] Getting initial location'
       retrying_set_location(args.location)
 
     if args.auto_refresh:
@@ -614,13 +638,13 @@ def main():
         process_step(args, api_endpoint, access_token, profile_response,
                      pokemonsJSON, ignore, only)
 
-        print('Completed: ' + str(
-            ((step+1) + pos * .25 - .25) / (steplimit2) * 100) + '%')
+        print >> sys.stderr, 'Completed: ' + str(
+            ((step+1) + pos * .25 - .25) / (steplimit2) * 100) + '%'
 
     global NEXT_LAT, NEXT_LONG
     if (NEXT_LAT and NEXT_LONG and
             (NEXT_LAT != FLOAT_LAT or NEXT_LONG != FLOAT_LONG)):
-        print('Update to next location %f, %f' % (NEXT_LAT, NEXT_LONG))
+        print >> sys.stderr, 'Update to next location %f, %f' % (NEXT_LAT, NEXT_LONG)
         set_location_coords(NEXT_LAT, NEXT_LONG, 0)
         NEXT_LAT = 0
         NEXT_LONG = 0
@@ -632,7 +656,7 @@ def main():
 
 def process_step(args, api_endpoint, access_token, profile_response,
                  pokemonsJSON, ignore, only):
-    print('[+] Searching for Pokemon at location {} {}'.format(FLOAT_LAT, FLOAT_LONG))
+    print >> sys.stderr, '[+] Searching for Pokemon at location {} {}'.format(FLOAT_LAT, FLOAT_LONG)
     origin = LatLng.from_degrees(FLOAT_LAT, FLOAT_LONG)
     step_lat = FLOAT_LAT
     step_long = FLOAT_LONG
@@ -664,8 +688,7 @@ def process_step(args, api_endpoint, access_token, profile_response,
                     for Fort in cell.Fort:
                         if Fort.Enabled == True:
                             if args.china:
-                                (Fort.Latitude, Fort.Longitude) = \
-transform_from_wgs_to_gcj(Location(Fort.Latitude, Fort.Longitude))
+                                (Fort.Latitude, Fort.Longitude) = transform_from_wgs_to_gcj(Location(Fort.Latitude, Fort.Longitude))
                             if Fort.GymPoints and args.display_gym:
                                 gyms[Fort.FortId] = [Fort.Team, Fort.Latitude,
                                                      Fort.Longitude, Fort.GymPoints]
@@ -686,6 +709,9 @@ transform_from_wgs_to_gcj(Location(Fort.Latitude, Fort.Longitude))
     for poke in visible:
         pokeid = str(poke.pokemon.PokemonId)
         pokename = pokemonsJSON[pokeid]
+        try:
+            print "There's a",pokename,"nearby"
+        except: continue
         if args.ignore:
             if pokename.lower() in ignore or pokeid in ignore:
                 continue
@@ -693,13 +719,10 @@ transform_from_wgs_to_gcj(Location(Fort.Latitude, Fort.Longitude))
             if pokename.lower() not in only and pokeid not in only:
                 continue
 
-        disappear_timestamp = time.time() + poke.TimeTillHiddenMs \
-            / 1000
+        disappear_timestamp = time.time() + poke.TimeTillHiddenMs / 1000
 
         if args.china:
-            (poke.Latitude, poke.Longitude) = \
-                transform_from_wgs_to_gcj(Location(poke.Latitude,
-                    poke.Longitude))
+            (poke.Latitude, poke.Longitude) = transform_from_wgs_to_gcj(Location(poke.Latitude, poke.Longitude))
 
         pokemons[poke.SpawnPointId] = {
             "lat": poke.Latitude,
@@ -715,7 +738,7 @@ def clear_stale_pokemons():
     for pokemon_key in pokemons.keys():
         pokemon = pokemons[pokemon_key]
         if current_time > pokemon['disappear_time']:
-            print "[+] removing stale pokemon %s at %f, %f from list" % (
+            print >> sys.stderr, "[+] removing stale pokemon %s at %f, %f from list" % (
                 pokemon['name'].encode('utf-8'), pokemon['lat'], pokemon['lng'])
             del pokemons[pokemon_key]
 
@@ -735,7 +758,7 @@ def register_background_thread(initial_registration=False):
         if not werkzeug.serving.is_running_from_reloader():
             debug(
                 'register_background_thread: not running inside Flask so not starting thread')
-            return
+            # return
         if search_thread:
             debug(
                 'register_background_thread: initial registration requested but thread already running')
@@ -800,9 +823,9 @@ def next_loc():
     lat = flask.request.args.get('lat', '')
     lon = flask.request.args.get('lon', '')
     if not (lat and lon):
-        print('[-] Invalid next location: %s,%s' % (lat, lon))
+        print >> sys.stderr, '[-] Invalid next location: %s,%s' % (lat, lon)
     else:
-        print('[+] Saved next location as %s,%s' % (lat, lon))
+        print >> sys.stderr, '[+] Saved next location as %s,%s' % (lat, lon)
         NEXT_LAT = float(lat)
         NEXT_LONG = float(lon)
         return 'ok'
@@ -818,6 +841,9 @@ def get_pokemarkers():
         'key': 'start-position',
         'disappear_time': -1
     }]
+
+    print >> sys.stderr, "**********"
+    print >> sys.stderr, pokemons
 
     for pokemon_key in pokemons:
         pokemon = pokemons[pokemon_key]
@@ -908,3 +934,5 @@ if __name__ == '__main__':
     args = get_args()
     register_background_thread(initial_registration=True)
     app.run(debug=True, threaded=True, host=args.host, port=args.port)
+else:
+    register_background_thread(initial_registration=True)
